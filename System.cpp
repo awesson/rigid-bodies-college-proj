@@ -49,7 +49,7 @@ void System::add_gravity()
 bool System::collsion_detect(double* prev_pos, double* prev_vel)
 {
 	double curr_pos[size_pos()], curr_vel[size_vel()];
-	Vec3 p, p1, p2, normal, r1, r2;
+	Vec3 p, normal, r1, r2;
 	Body *b1, *b2;
 	bool has_collisions = false;
 	
@@ -57,26 +57,12 @@ bool System::collsion_detect(double* prev_pos, double* prev_vel)
 		for(int k = i+1; k < bVector.size(); ++k){
 			b1 = bVector[i];
 			b2 = bVector[k];
-#if USE_XENOCOLLIDE
-			if(Body::intersection_test(b1, b2, p1, p2, normal))
-#else
-			if(b1->intersection_test(b2, p, normal))
-#endif
-			{
-#if USE_XENOCOLLIDE	
-				// get the relative position of the collision points in the x', v' frame
-				r1 = p1 - b1->Position;
-				r2 = p2 - b2->Position;
-				// The intersection test returns a normal relative to b2,
-				// but the collision resolution uses a normal relative to b1.
-				normal = -normal;
-#else
-				// get the relative position of the collision points in the x', v' frame
+			if(b1->intersection_test(b2, p, normal)){
+				// get the relative position of the collision point in the x', v' frame
 				r1 = p - b1->Position;
 				r2 = p - b2->Position;
-#endif
 				
-				// set the system back to the x', v state to apply collision forces
+				// set the system back to the x, v state
 				get_state_pos(curr_pos + i*POS_STATE_SIZE, i);
 				get_state_vel(curr_vel + i*VEL_STATE_SIZE, i);
 				get_state_pos(curr_pos + k*POS_STATE_SIZE, k);
@@ -89,7 +75,7 @@ bool System::collsion_detect(double* prev_pos, double* prev_vel)
 				has_collisions = resolve_collisions(b1, b2, r1, r2, normal, -1, false) || has_collisions;
 				
                 // store the updated velocities and reset the system
-                // to x', v' for the rest of the collisions to be resolved
+                // to x, v' for the rest of the collisions to be resolved
 				//get_state_pos(prev_pos + i*POS_STATE_SIZE, i);
 				get_state_vel(prev_vel + i*VEL_STATE_SIZE, i);
 				//get_state_pos(prev_pos + k*POS_STATE_SIZE, k);
@@ -129,8 +115,8 @@ bool System::contact_detect(int iter, bool is_shock_prop)
 		for(int k = 0; k < b->in_contact_list.size(); ++k){
 			ContactInfo c = b->in_contact_list[k];
 			// get the relative position of the contact point in the x, v frame
-			r1 = c.p1 - c.b->Position;
-			r2 = c.p2 - b->Position;
+			r1 = c.p - c.b->Position;
+			r2 = c.p - b->Position;
 			has_contacts = resolve_collisions(c.b, b, r1, r2, c.normal, iter, true) || has_contacts;
 			get_state_vel(curr_vel, b);
 			set_state_vel(curr_vel, b);
@@ -170,14 +156,14 @@ bool System::contact_detect(int iter, bool is_shock_prop)
  * it is collision of contact resolution.
  **/
 bool System::resolve_collisions(Body *b1, Body *b2, Vec3 r1, Vec3 r2, Vec3 normal, int iter, bool is_contact)
-{	
+{
 	Matrix3 K = b1->get_K(r1) + b2->get_K(r2);
 	Matrix3 K_inv;
 	inverse(&K_inv, K);
 	Vec3 u_rel = b2->get_vel(r2) - b1->get_vel(r1);
 	
 	// check if bodies are non-separating in the current timestep
-	if(u_rel*normal > 0.0){
+	if(u_rel*normal > 0){
 		return false; // non-separating, no contact
 	}
 	
@@ -186,8 +172,8 @@ bool System::resolve_collisions(Body *b1, Body *b2, Vec3 r1, Vec3 r2, Vec3 norma
 	if(is_contact){
 		//if(iter > 9) // gradually reduce speed
 			restitution = 0.0;
-        // else
-        //     restitution = -.1*(9-iter);
+        //else
+        //    restitution = -.1*(9-iter);
     } else{
         restitution = std::min(b1->restitution, b2->restitution);
     }

@@ -26,15 +26,10 @@ public:
 
     void reset();
     void draw();
-#if USE_XENOCOLLIDE
-    static bool intersection_test(Body* body1, Body* body2, Vec3& p1, Vec3& p2, Vec3 &normal);
-#else
-	bool intersection_test(Body *body_o, Vec3 &p, Vec3 &normal);
-#endif
-    Vec3 get_vertex_world_position(int i) const;
-	void TransformBodyToWorld(Vec3 &body_pos) const;
-    Vec3 get_vertex_world_normal(int i) const;
-    void get_vertex_in_body_space(Vec3 &world_pos) const;
+    bool intersection_test(Body* body_o, Vec3& p, Vec3 &normal);
+    Vec3 get_vertex_world_position(int i);
+    Vec3 get_vertex_world_normal(int i);
+    Vec3 get_vertex_in_body_space(Vec3 world_pos);
     void getInfo(BodyInfo &);
     Matrix3 get_K(Vec3 pos);
     Vec3 get_vel(Vec3 pos);
@@ -75,7 +70,6 @@ public:
 // used for the contact graph
 struct ContactInfo{
 	Body *b; // body in contact with
-	Vec3 p1; // position of contact on this body
-	Vec3 p2; // position of contact on body b
+	Vec3 p; // position of contact
 	Vec3 normal; // normal of contact
 };

@@ -65,14 +65,6 @@ const bool true = 1;
 inline double rint(double x) { return floor(x + 0.5); }
 #endif
 
-#if !defined(EPSILON)
-#  define EPSILON 1.0e-6
-#endif
-
-#if !defined(IsZero)
-#  define IsZero(x) std::abs(x) < EPSILON
-#endif 
-
 ////////////////////////////////////////////////////////////////////////
 //
 //

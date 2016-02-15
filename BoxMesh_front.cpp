@@ -134,7 +134,7 @@ BoxMesh::BoxMesh()
 
     // subdivide for the intersection tests
     for(int i = 0; i < 2; ++i)
-    	subdivide();
+            subdivide();
 
     create_gl_data();
 }

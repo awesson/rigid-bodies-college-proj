@@ -7,6 +7,7 @@
 #include "Body.h"
 #include "integrator.h"
 
+#define EPSILON 1.0e-10
 #define Ks 100.0f
 #define Kd 100.0f
 #define POS_STATE_SIZE 7
