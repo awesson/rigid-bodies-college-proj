@@ -18,7 +18,7 @@
 
 /* macros */
 #define MAX_COLLISIONS 5
-#define MAX_CONTACTS 5
+#define MAX_CONTACTS 10
 #define MAX_SHOCK_PROP 1
 #define rot_ang PI/5.0
 
@@ -59,7 +59,10 @@ extern std::vector<Body*> top_sorted;
 extern std::stack<Body*> S;
 extern int SCC_num;
 
-static double *prev_pos, *prev_vel, *y_vel;
+// rts lighting data
+// RTSscene *rtsScene;
+// RTSlight *rtsLight;
+// std::vector<RTSobject *> rtsLightingObjs;
 
 /*********************************************************************
 * free/clear/allocate simulation data
@@ -67,12 +70,10 @@ static double *prev_pos, *prev_vel, *y_vel;
 
 static void free_data ( void )
 {
+	//bodyInfoList.clear();
 	delete sys;
 	bVector.clear();
 	delete integrator;
-	delete[] prev_pos;
-	delete[] prev_vel;
-	delete[] y_vel;
 }
 
 /*********************************************************************
@@ -89,7 +90,7 @@ static void init_slide()
 	// floor
 	bVector.push_back(new Body(center, Quaternion(Vec3(0.0, 0.0, 1.0), rot_ang), new Box(Color3(1.0, 1.0, .5)), Vec3(20, 20, 20), 1.0, .7, 0.0));
 
-	bVector.push_back(new Body(center + (10*(sin(rot_ang) + cos(rot_ang)) + .5*(cos(rot_ang) - sin(rot_ang)))*y_offset + (10*(cos(rot_ang) - sin(rot_ang)) - .5*(sin(rot_ang) + cos(rot_ang)))*x_offset, Quaternion(Vec3(0.0, 0.0, 1.0), rot_ang), new Box(Color3(.1, .7, .1)), Vec3(1, 1, 1), 1.0, 1.0, 1.0));
+	bVector.push_back(new Body(center + (10*(sin(rot_ang) + cos(rot_ang)) + .5*(cos(rot_ang) - sin(rot_ang)) + EPSILON)*y_offset + (10*(cos(rot_ang) - sin(rot_ang)) - .5*(sin(rot_ang) + cos(rot_ang)) + EPSILON)*x_offset, Quaternion(Vec3(0.0, 0.0, 1.0), rot_ang), new Box(Color3(.1, .7, .1)), Vec3(1, 1, 1), 1.0, 1.0, 1.0));
 }
 
 static void init_combo()
@@ -300,9 +301,9 @@ static void init_tall_stack()
 	// floor
 	bVector.push_back(new Body(center - .5*y_offset, Quaternion::Identity, new Box(Color3(1.0, 1.0, .5)), Vec3(200, 1, 200), .3, 0.5, 0));
 
-	for(int i = 0; i < 1; i++)
+	for(int i = 0; i < 3; i++)
 	{
-		bVector.push_back(new Body(center + ((1.5 + 100000*EPSILON)*box_height + (box_height + 100000*EPSILON)*i)*y_offset + (i % 1)*.05*x_offset,  Quaternion(Vec3(0.0, 0.0, 1.0), PI/2.5), new Box(Color3((i % 5)/15.0 + 0.67, (i % 4)/12.0 + 0.67, (i % 2)/6.0 + 0.67)), Vec3(1, 1, 1), .4, 0.5, 1));
+		bVector.push_back(new Body(center + ((.5)*box_height + (box_height)*i)*y_offset + (i % 2)*.1*x_offset, Quaternion::Identity, new Box(Color3((i % 5)/15.0 + 0.67, (i % 4)/12.0 + 0.67, (i % 2)/6.0 + 0.67)), Vec3(1, 1, 1), .4, 0.5, 1));
 	}
 }
 
@@ -341,11 +342,6 @@ static void init_system( int i )
 	}
 
 	sys = new System(bVector);
-	
-	prev_pos = new double[sys->size_pos()];
-	prev_vel = new double[sys->size_vel()];
-	y_vel = new double[VEL_STATE_SIZE];
-	memset(y_vel, 0, sizeof(double)*VEL_STATE_SIZE);
 }
 
 /*********************************************************************
@@ -394,7 +390,7 @@ static void remap_GUI()
 	int ii, size = sys->num_bodies();
 	for(ii=0; ii<size; ii++)
 	{
-		sys->bVector[ii]->reset();
+		bVector[ii]->reset();
 	}
 }
 
@@ -489,58 +485,53 @@ static void reshape_func ( int width, int height )
 /***********************************************************************
 * Build a contact graph in the system based on the current state.
 ************************************************************************/
-void create_contact_graph()
+void create_contact_graph(double *prev_pos, double *prev_vel, bool is_initial)
 {
 	// clear contact graph
 	for(int i = 0; i < sys->num_bodies(); ++i)
-		sys->bVector[i]->in_contact_list.clear();
+		bVector[i]->in_contact_list.clear();
 
 	Vec3 p, p1, p2, normal;
+	ContactInfo c;
 	// create contact graph
 	for(int i = 0; i < sys->num_bodies(); ++i){
-		// static objects should never be considered as resting on anything
-		if(sys->bVector[i]->inv_mass != 0){
-			// evolve each object along the y-axis while keeping the others stationary and test for intersection
+		// hack to make sure static objects are never considered resting on anything
+		if(bVector[i]->inv_mass != 0){
+			// evolve each object keeping the others stationary and test for intersection
 			sys->get_state_pos(prev_pos + i*POS_STATE_SIZE, i);
-			sys->get_state_vel(prev_vel + i*VEL_STATE_SIZE, i);
 
-			// grab the y component of the velocity and keep only that.
-			y_vel[1] = prev_vel[i*VEL_STATE_SIZE + 1];
-			if(y_vel[1] > 0)
-			{
-				// Make sure that the object moves down or else there might
-				// be an object above this one that will then count as being below it.
-				y_vel[1] = -y_vel[1];
-			}
-			else
-			{
-				// Increase the current velocity by a factor of 3 to account for
-				// any increase in velocity due to future contact resolutions.
-				y_vel[1] *= 3;
-			}
-			sys->set_state_vel(y_vel, i);
 			integrator->integrate_pos(*sys, dt, i);
 
 			for(int k = 0; k < sys->num_bodies(); ++k){
 				// add the contact to the bodies list if there is one
 #if USE_XENOCOLLIDE
-				if(k != i && Body::intersection_test(sys->bVector[k], sys->bVector[i], p1, p2, normal))
+				if(k != i && Body::intersection_test(bVector[k], bVector[i], p1, p2, normal))
 #else
-				if(k != i && sys->bVector[k]->intersection_test(sys->bVector[i], p, normal))
+				if(k != i && bVector[k]->intersection_test(bVector[i], p, normal))
 #endif
 				{
-					sys->bVector[i]->in_contact_list.push_back(sys->bVector[k]);
+					c.b = bVector[k];
+#if USE_XENOCOLLIDE
+					c.p1 = p1;
+					c.p2 = p2;
+					c.normal = -normal;
+#else
+					c.p1 = p;
+					c.p2 = p;
+					c.normal = normal;
+#endif
+					bVector[i]->in_contact_list.push_back(c);
 				}
 			}
 			
-			// Reset this body
 			sys->set_state_pos(prev_pos + i*POS_STATE_SIZE, i);
-			sys->set_state_vel(prev_vel + i*VEL_STATE_SIZE, i);
 		}
 	}
 
 	// sort bodies based on the new contact graph
 	sys->topological_tarjan();
+	// update the local copy
+	sys->get_bodies(bVector);
 }
 
 #define PERFORMANCE 1
@@ -578,9 +569,9 @@ static void idle_func ( int value )
 			sys->bVector[kk] = temp;
 		}
 	}
-	// update the local copy
-	sys->get_bodies(bVector);
-	
+
+	double prev_pos[sys->size_pos()];
+	double prev_vel[sys->size_vel()];
 
 	/***********************/
 	/* collision detection */
@@ -601,26 +592,20 @@ static void idle_func ( int value )
 	}
 
 	// find and resolve collisions
-	int count;
-	for(count = 0; count < MAX_COLLISIONS; count++){
-		if(sys->collsion_detect(integrator, dt, prev_pos, prev_vel))
-		{
-			// set the system back to x and v where v has collision info
-			for(int i = 0; i < sys->num_bodies(); ++i){
-				sys->set_state_pos(prev_pos + i*POS_STATE_SIZE, i);
-				sys->set_state_vel(prev_vel + i*VEL_STATE_SIZE, i);
-			}
-			// get new x' and v'
-			sys->zero_forces();
-			sys->add_gravity();
-			for(int i = 0; i < sys->num_bodies(); ++i){
-				integrator->integrate_vel(*sys, dt, i);
-				integrator->integrate_pos(*sys, dt, i);
-			}
+	int count = 0;
+	while(sys->collsion_detect(prev_pos, prev_vel) && count < MAX_COLLISIONS){
+		count++;
+		// set the system back to x and v where v has collision info
+		for(int i = 0; i < sys->num_bodies(); ++i){
+			sys->set_state_pos(prev_pos + i*POS_STATE_SIZE, i);
+			sys->set_state_vel(prev_vel + i*VEL_STATE_SIZE, i);
 		}
-		else
-		{
-			break;
+		// get new x' and v'
+		sys->zero_forces();
+		sys->add_gravity();
+		for(int i = 0; i < sys->num_bodies(); ++i){
+			integrator->integrate_vel(*sys, dt, i);
+			integrator->integrate_pos(*sys, dt, i);
 		}
 	}
 	
@@ -647,43 +632,35 @@ static void idle_func ( int value )
 		integrator->integrate_vel(*sys, dt, i);
 	}
 
-	create_contact_graph();
-	
-	// Save off current x
-	for(int i = 0; i < sys->num_bodies(); ++i){
-		sys->get_state_pos(prev_pos + i*POS_STATE_SIZE, i);
-	}
-	
-	// Set state to x', v'
-	for(int i = 0; i < sys->num_bodies(); ++i){
-		integrator->integrate_pos(*sys, dt, i);
-	}
+	// create the initial contact graph
+	create_contact_graph(prev_pos, prev_vel, true);
 
 	// resolve the contacts in the contact graph
-	for(count = 0; count < MAX_CONTACTS + MAX_SHOCK_PROP; count++)
-	{
-		if(sys->contact_detect(integrator, dt, prev_pos, count, count >= MAX_CONTACTS))
-		{
-			// Set state back to x, v' now that it has the new v'.
-			for(int i = 0; i < sys->num_bodies(); ++i){
-				sys->set_state_pos(prev_pos + i*POS_STATE_SIZE, i);
-			}
-
-			// Set state to the new x', v' before testing for contacts again
-			for(int i = 0; i < sys->num_bodies(); ++i){
-				integrator->integrate_pos(*sys, dt, i);
-			}
-		}
-		else
-		{
-			break;
-		}
+	for(count = 0; sys->contact_detect(count, false) && count < MAX_CONTACTS; count++){
+		// update the contact graph using the new velocities
+		create_contact_graph(prev_pos, prev_vel, false);
 	}
 	
 #if PERFORMANCE
 	printf("contact iterations: %d\n", count);
 	printf("--------------------------------\n");
 #endif
+
+	// update the contact graph using the new velocities
+	create_contact_graph(prev_pos, prev_vel, false);
+
+	if(count == MAX_CONTACTS){
+		// shock propagation
+		for(count = 0;sys->contact_detect(count, true) && count < MAX_SHOCK_PROP; count++){
+			// update the contact graph using the new velocities
+			create_contact_graph(prev_pos, prev_vel, false);
+		}
+	}
+
+	// update position
+	for(int i = 0; i < sys->num_bodies(); ++i){
+		integrator->integrate_pos( *sys, dt, i );
+	}
 
 	frame_number++;
 
@@ -700,7 +677,7 @@ static void display_func ( void )
 	// draw bodies
 	for(int ii = 0; ii < ((System *) sys)->num_bodies(); ++ii)
 	{
-		sys->bVector[ii]->draw();
+		bVector[ii]->draw();
 	}
 	
 	post_display();

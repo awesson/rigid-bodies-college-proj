@@ -2,20 +2,15 @@
 #include <algorithm>
 
 #define LEVEL_ITER 5
+
 // globals for tarjan's algorithm
 std::vector<Body*> top_sorted;
 std::stack<Body*> S;
 int SCC_num;
 
-static double *curr_pos, *curr_vel, *prev_pos, *prev_vel;
-
 System::System(std::vector<Body*> &i_bVector) : bVector(i_bVector),
                                                size(bVector.size())
 {
-	curr_pos = new double[size_pos()];
-	curr_vel = new double[size_vel()];
-	prev_pos = new double[size_pos()];
-	prev_vel = new double[size_vel()];
 }
 
 System::~System(void)
@@ -24,10 +19,6 @@ System::~System(void)
 		delete bVector[i];
 	}
     bVector.clear();
-	delete[] curr_pos;
-	delete[] curr_vel;
-	delete[] prev_pos;
-	delete[] prev_vel;
 }
 
 /**
@@ -55,8 +46,9 @@ void System::add_gravity()
 /**
  * calculates impulse forces and torques for collision detection
  **/
-bool System::collsion_detect(const RBIntegrator* pIntegrator, double dt, double* prev_pos, double* prev_vel)
+bool System::collsion_detect(double* prev_pos, double* prev_vel)
 {
+	double curr_pos[size_pos()], curr_vel[size_vel()];
 	Vec3 p, p1, p2, normal, r1, r2;
 	Body *b1, *b2;
 	bool has_collisions = false;
@@ -85,36 +77,26 @@ bool System::collsion_detect(const RBIntegrator* pIntegrator, double dt, double*
 #endif
 				
 				// set the system back to the x', v state to apply collision forces
+				get_state_pos(curr_pos + i*POS_STATE_SIZE, i);
 				get_state_vel(curr_vel + i*VEL_STATE_SIZE, i);
+				get_state_pos(curr_pos + k*POS_STATE_SIZE, k);
 				get_state_vel(curr_vel + k*VEL_STATE_SIZE, k);
+				//set_state_pos(prev_pos + i*POS_STATE_SIZE, i);
 				set_state_vel(prev_vel + i*VEL_STATE_SIZE, i);
+				//set_state_pos(prev_pos + k*POS_STATE_SIZE, k);
 				set_state_vel(prev_vel + k*VEL_STATE_SIZE, k);
 				
-				if(resolve_collisions(b1, b2, r1, r2, normal, -1, false))
-				{
-					has_collisions = true;
-					
-					// Save off the new v state
-					get_state_vel(prev_vel + i*VEL_STATE_SIZE, i);
-					get_state_vel(prev_vel + k*VEL_STATE_SIZE, k);
-					
-					// Update the x' for the bodies in this collision
-					set_state_pos(prev_pos + i*POS_STATE_SIZE, i);
-					set_state_pos(prev_pos + k*POS_STATE_SIZE, k);
-					pIntegrator->integrate_vel(*this, dt, i);
-					pIntegrator->integrate_vel(*this, dt, k);
-					pIntegrator->integrate_pos(*this, dt, i);
-					pIntegrator->integrate_pos(*this, dt, k);
-				}
-				else
-				{
-					// Save off the new v state
-					get_state_vel(prev_vel + i*VEL_STATE_SIZE, i);
-					get_state_vel(prev_vel + k*VEL_STATE_SIZE, k);
-				}
+				has_collisions = resolve_collisions(b1, b2, r1, r2, normal, -1, false) || has_collisions;
 				
-                // reset the system to x', v' for the rest of the collisions to be resolved
+                // store the updated velocities and reset the system
+                // to x', v' for the rest of the collisions to be resolved
+				//get_state_pos(prev_pos + i*POS_STATE_SIZE, i);
+				get_state_vel(prev_vel + i*VEL_STATE_SIZE, i);
+				//get_state_pos(prev_pos + k*POS_STATE_SIZE, k);
+				get_state_vel(prev_vel + k*VEL_STATE_SIZE, k);
+				set_state_pos(curr_pos + i*POS_STATE_SIZE, i);
 				set_state_vel(curr_vel + i*VEL_STATE_SIZE, i);
+				set_state_pos(curr_pos + k*POS_STATE_SIZE, k);
 				set_state_vel(curr_vel + k*VEL_STATE_SIZE, k);
 			}
         }
@@ -126,105 +108,52 @@ bool System::collsion_detect(const RBIntegrator* pIntegrator, double dt, double*
 /**
  * calculates impulse forces and torques for contact detection
  **/
-bool System::contact_detect(const RBIntegrator* pIntegrator, double dt, double* prev_pos, int iter, bool is_shock_prop)
+bool System::contact_detect(int iter, bool is_shock_prop)
 {
-	Vec3 r1, r2, p, p1, p2, normal;
-	Body *b1, *b2;
+	Vec3 r1, r2;
+	Body *b;
+	double curr_vel[VEL_STATE_SIZE];
 	bool has_contacts = false;
-	bool had_contact_this_iter = false;
 	int count = 0, cur_SCC = 0, SCC_head_body = 0;
 	for(int i = 0; i < size || count < LEVEL_ITER; ++i){
-		if(i == size || bVector[i]->SCC_num != cur_SCC)
-		{ // Reached the last body in the current strongly connected component
+		if( i == size || (bVector[i]->SCC_num != cur_SCC && count < LEVEL_ITER)){
+			i = SCC_head_body;
 			count++;
-			
-			if(count == LEVEL_ITER || (count != 0 && !had_contact_this_iter))
-			{ // Move onto the next strongly connected component if this is the max number of iterations per level
-			  // or if we already did one iteration and found no contacts.
-
-				if(i == size)
-				{ // This was the last SCC so just end the loop
-					break;
-				}
-
-				// set the bodies in this level to be static before moving
-				// on to the next level if applying shock propagation
-				if(is_shock_prop)
-				{
-					for(int k = SCC_head_body; k < i; ++k)
-					{
-						Body *b = bVector[k];
-						b->inv_mass = 0;
-						b->Iinv = Matrix3(Vec3(0,0,0), Vec3(0,0,0), Vec3(0,0,0));
-					}
-				}
-
-				cur_SCC++;
-				SCC_head_body = i;
-				count = 0;
-			}
-			else if(count < LEVEL_ITER)
-			{ // Move on to the next iteration through this strongly connected component
-				i = SCC_head_body;
-			}
-			
-			had_contact_this_iter = false;
+		} else if(bVector[i]->SCC_num != cur_SCC && count == LEVEL_ITER){
+			cur_SCC++;
+			SCC_head_body = i;
+			count = 0;
 		}
 		
-		b1 = bVector[i];
-		for(int k = i - 1; k >= 0; --k){
-			b2 = bVector[k];
-
-#if USE_XENOCOLLIDE
-			if(Body::intersection_test(b1, b2, p1, p2, normal))
-#else
-			if(b1->intersection_test(b2, p, normal))
-#endif
-			{
-#if USE_XENOCOLLIDE	
-				// get the relative position of the collision points in the x', v' frame (TODO: make this in the x, v' frame)
-				r1 = p1 - b1->Position;
-				r2 = p2 - b2->Position;
-				// The intersection test returns a normal relative to b2,
-				// but the collision resolution uses a normal relative to b1.
-				normal = -normal;
-#else
-				// get the relative position of the collision points in the x', v' frame
-				r1 = p - b1->Position;
-				r2 = p - b2->Position;
-#endif
-
-				had_contact_this_iter = resolve_collisions(b1, b2, r1, r2, normal, iter, true) || had_contact_this_iter;
-				has_contacts = had_contact_this_iter || has_contacts;
-				
-				if(had_contact_this_iter)
-				{
-					// Update the x' for the bodies in this collision
-					set_state_pos(prev_pos + i*POS_STATE_SIZE, i);
-					set_state_pos(prev_pos + k*POS_STATE_SIZE, k);
-					pIntegrator->integrate_pos(*this, dt, i);
-					pIntegrator->integrate_pos(*this, dt, k);
-				}
+		b = bVector[i];
+		for(int k = 0; k < b->in_contact_list.size(); ++k){
+			ContactInfo c = b->in_contact_list[k];
+			// get the relative position of the contact point in the x, v frame
+			r1 = c.p1 - c.b->Position;
+			r2 = c.p2 - b->Position;
+			has_contacts = resolve_collisions(c.b, b, r1, r2, c.normal, iter, true) || has_contacts;
+			get_state_vel(curr_vel, b);
+			set_state_vel(curr_vel, b);
+			if(c.b->inv_mass != 0){
+				get_state_vel(curr_vel, c.b);
+				set_state_vel(curr_vel, c.b);
 			}
+		}
+		
+		// set the bodies in this level to be static before moving
+		// on to the next level if applying shock propagation
+		if(is_shock_prop && count == 5){
+			b->inv_mass = 0;
+			b->Iinv = Matrix3(Vec3(0,0,0), Vec3(0,0,0), Vec3(0,0,0));
 		}
 	}
 	
-	// reset the masses and synch the momentum with
-	// the velocity if shock propagation was used
-	if(is_shock_prop)
-	{
-		for(int i = 0; i < size; ++i)
-		{
-			Body* b = bVector[i];
+	// reset the masses if shock propagation was used
+	if(is_shock_prop){
+		for(int i = 0; i < size; ++i){
+			b = bVector[i];
 			b->inv_mass = b->construct_inv_mass;
 			b->Iinv = b->R * b->Iinv_body * b->R_t;
-			if(!IsZero(b->inv_mass))
-			{
-				b->Momentum = b->Velocity / b->inv_mass;
-				Matrix3 I;
-				inverse(&I, b->Iinv);
-				b->AngularMomentum = I * b->Omega;
-			}
 		}
 	}
 	
@@ -248,61 +177,57 @@ bool System::resolve_collisions(Body *b1, Body *b2, Vec3 r1, Vec3 r2, Vec3 norma
 	Vec3 u_rel = b2->get_vel(r2) - b1->get_vel(r1);
 	
 	// check if bodies are non-separating in the current timestep
-	if(u_rel*normal >= 0.0){
+	if(u_rel*normal > 0.0){
 		return false; // non-separating, no contact
 	}
 	
 	// has_collisions = true;
 	double restitution;
-	if(is_contact)
-	{
-		if(iter > 4)
-		{ // gradually reduce speed
+	if(is_contact){
+		//if(iter > 9) // gradually reduce speed
 			restitution = 0.0;
-		}
-		else
-		{
-			restitution = -.2*(4-iter);
-		}
-	}
-	else
-	{
-		restitution = std::min(b1->restitution, b2->restitution);
-	}
+        // else
+        //     restitution = -.1*(9-iter);
+    } else{
+        restitution = std::min(b1->restitution, b2->restitution);
+    }
 
     double friction = std::min(b1->coef_friction, b2->coef_friction);
 
     // check if static friction should be used
     Vec3 j_static = K_inv*(-restitution*(u_rel*normal)*normal - u_rel);
     double j_static_dot_normal = j_static*normal;
-	Vec3 j;
 
     if(norm(j_static - (j_static_dot_normal)*normal)
-     	<= friction*(j_static_dot_normal))
-	{
+     <= friction*(j_static_dot_normal)){
         // static friction is ok
-		j = j_static;
-    }
-	else
-	{ // use kinetic friction
+        b1->Momentum -= j_static;
+		b1->Velocity -= j_static * b1->inv_mass;
+        b2->Momentum += j_static;
+		b2->Velocity += j_static * b2->inv_mass;
+        b1->AngularMomentum += cross(r1, -j_static);
+		b1->Omega += b1->Iinv * cross(r1, -j_static);
+        b2->AngularMomentum += cross(r2, j_static);
+		b2->Omega += b2->Iinv * cross(r1, j_static);
+		return norm2(j_static) > 0;
+    } else{ // use kinetic friction
         double u_rel_dot_normal = u_rel*normal;
         Vec3 t = u_rel - (u_rel_dot_normal)*normal;
         unitize(t);
         Vec3 normal_minus_friction_t = normal - friction*t;
         double j_n = -(restitution + 1)*(u_rel_dot_normal) /
                     (normal*K*(normal_minus_friction_t));
-        j = (j_n*(normal_minus_friction_t));
+        Vec3 j = (j_n*(normal_minus_friction_t));
+        b1->Momentum -= j;
+		b1->Velocity -= j * b1->inv_mass;
+        b2->Momentum += j;
+		b2->Velocity += j * b2->inv_mass;
+        b1->AngularMomentum += cross(r1, -j);
+		b1->Omega += b1->Iinv * cross(r1, -j);
+        b2->AngularMomentum += cross(r2, j);
+		b2->Omega += b2->Iinv * cross(r1, j);
+		return norm2(j) > 0;
     }
-
-    b1->Momentum -= j;
-	b1->Velocity -= j * b1->inv_mass;
-    b2->Momentum += j;
-	b2->Velocity += j * b2->inv_mass;
-    b1->AngularMomentum += cross(r1, -j);
-	b1->Omega += b1->Iinv * cross(r1, -j);
-    b2->AngularMomentum += cross(r2, j);
-	b2->Omega += b2->Iinv * cross(r2, j);
-	return true;
 }
 
 /**
@@ -463,7 +388,7 @@ void System::topological_tarjan(){
         }
     }
     
-	// copy over the sorted list and reset values used in the function
+	// copy over the sorted list and reset values using in the function
     for(int i = 0; i < size; i++){
         bVector[i] = top_sorted[i];
 		bVector[i]->index = -1;
@@ -486,7 +411,7 @@ void System::strongconnect(Body *vertex, int &index){
     
 	// compare index values with all children
     for(int i = 0; i < vertex->in_contact_list.size(); i++){
-        Body* child_vertex = vertex->in_contact_list[i];
+        Body* child_vertex = (vertex->in_contact_list[i]).b;
         if(child_vertex->index < 0){ // recurse on child if index is undef
             strongconnect(child_vertex, index);
             if(vertex->lowlink > child_vertex->lowlink)

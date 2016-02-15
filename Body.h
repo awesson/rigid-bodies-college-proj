@@ -12,6 +12,10 @@ struct BodyInfo{
 	Color3 color;
 };
 
+// contact information relative to another body
+// used for the contact graph
+struct ContactInfo;
+
 class Body
 {
 public:
@@ -60,9 +64,18 @@ public:
     const double coef_friction;
 
     // the contact graph. Holds the bodies which this one rests on top of
-    std::vector<Body*> in_contact_list;
+    std::vector<ContactInfo> in_contact_list;
     int index;
     int lowlink;
     bool in_stack;
-    int SCC_num;
+	int SCC_num;
+};
+
+// contact information relative to another body
+// used for the contact graph
+struct ContactInfo{
+	Body *b; // body in contact with
+	Vec3 p1; // position of contact on this body
+	Vec3 p2; // position of contact on body b
+	Vec3 normal; // normal of contact
 };

@@ -21,8 +21,8 @@ public:
 
 	void zero_forces();
 	void add_gravity();
-	bool collsion_detect(const RBIntegrator* pIntegrator, double dt, double* prev_pos, double* prev_vel);
-	bool contact_detect(const RBIntegrator* pIntegrator, double dt, double* prev_pos, int iter, bool is_shock_prop);
+	bool collsion_detect(double* prev_pos, double* prev_vel);
+	bool contact_detect(int iter, bool is_shock_prop);
 	virtual void eval_deriv_pos(double xdot[]);
 	virtual void eval_deriv_vel(double xdot[]);
 	virtual void get_state_pos(double x[]) const;

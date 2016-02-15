@@ -58,51 +58,6 @@ inline float sign(float f)
 #if USE_XENOCOLLIDE
 Vec3 Box::GetSupportPoint(const Vec3& local_normal) const
 {
-	//////////////////
-	// Corners only //
-	//////////////////
-	// Vec3 ret = Vec3(0.5, 0.5, 0.5);
-	//     if (local_normal[0] < 0.0) { ret[0] = -ret[0]; }
-	//     if (local_normal[1] < 0.0) { ret[1] = -ret[1]; }
-	//     if (local_normal[2] < 0.0) { ret[2] = -ret[2]; }
-	// 
-	//     return ret;
-	
-	
-	////////////////////////
-	// Exact intersection //
-	////////////////////////
-	// double x_abs = fabs(local_normal[0]);
-	// double y_abs = fabs(local_normal[1]);
-	// double z_abs = fabs(local_normal[2]);
-	// int intersection_axis_index = 2;
-	// if(x_abs > y_abs)
-	// {
-	// 	if(x_abs > z_abs)
-	// 	{ // x plane intersection
-	// 		intersection_axis_index = 0;
-	// 	}
-	// }
-	// else if(y_abs > z_abs)
-	// { // y plane intersection
-	// 	intersection_axis_index = 1;
-	// }
-	// 
-	// Vec3 intersection_axis = Vec3(0.0, 0.0, 0.0);
-	// intersection_axis[intersection_axis_index] = 1;
-	// Vec3 norm = local_normal;
-	// unitize(norm);
-	// Vec3 ret = norm*(0.5/(norm*intersection_axis));
-	// if(local_normal[intersection_axis_index] < 0)
-	// {
-	// 	ret = -ret;
-	// }
-	// 
-	// return ret;
-	
-	//////////////////////////////////
-	// Corners and centers of edges //
-	//////////////////////////////////
 	if(IsZero(local_normal[0]))
 	{
 		if(IsZero(local_normal[1]))
