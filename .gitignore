@@ -1,0 +1,6 @@
+*.o
+.svn
+.DS_Store
+\#*\#
+*~
+local
