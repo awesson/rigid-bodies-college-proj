@@ -1,8 +1,5 @@
-******************************************************************************
-This is an old college project that used to use svn.
-I don't remember the state it was in,
-but I want to save it on github for prosterity.
-******************************************************************************
+# This is an old college project that used to use svn. I don't remember the state it was in, but I want to save it on github for prosterity.
+
 
 This is an amortized version of a rigid body simulation.
 
